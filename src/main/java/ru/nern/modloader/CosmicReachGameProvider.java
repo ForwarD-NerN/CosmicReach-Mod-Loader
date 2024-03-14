@@ -31,7 +31,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /*
- * A custom GameProvider which grants Fabric Loader the necessary information to launch the app.
+ * A custom GameProvider which grants Fabric Loader the necessary information to launch the game.
  */
 public class CosmicReachGameProvider implements GameProvider {
     public static final String[] ENTRYPOINTS = new String[]{"finalforeach.cosmicreach.lwjgl3.Lwjgl3Launcher"};
@@ -44,48 +44,28 @@ public class CosmicReachGameProvider implements GameProvider {
 
     private static final GameTransformer TRANSFORMERS = new GameTransformer(new CRInitPatch());
 
-    /*
-     * Display an identifier for the app.
-     */
     @Override
     public String getGameId() {
         return "cosmic_reach";
     }
-
-    /*
-     * Display a readable name for the app.
-     */
     @Override
     public String getGameName() {
         return "Cosmic Reach";
     }
-
-    /*
-     * Display a raw version string that may include build numbers or git hashes.
-     */
     @Override
     public String getRawGameVersion() {
         return version.getVersion();
     }
-
-    /*
-     * Display a clean version string for display.
-     */
     @Override
     public String getNormalizedGameVersion() {
         return version.getVersion();
     }
 
-    /*
-     * Provides built-in mods, for example a mod that represents the app itself so
-     * that mods can depend on specific versions.
-     */
     @Override
     public Collection<BuiltinMod> getBuiltinMods() {
         HashMap<String, String> contactMap = new HashMap<>();
         contactMap.put("homepage", "https://finalforeach.itch.io/cosmic-reach");
         contactMap.put("wiki", "https://finalforeach.itch.io/cosmic-reach");
-
 
         BuiltinModMetadata.Builder modMetadata = new BuiltinModMetadata.Builder(getGameId(), getNormalizedGameVersion())
                 .setName(getGameName())
@@ -95,20 +75,11 @@ public class CosmicReachGameProvider implements GameProvider {
 
         return Collections.singletonList(new BuiltinMod(Collections.singletonList(gameJar), modMetadata.build()));
     }
-
-    /*
-     * Provides the full class name of the app's entrypoint.
-     */
     @Override
     public String getEntrypoint() {
         return entrypoint;
     }
 
-    /*
-     * Provides the directory path where the app's resources (such as config) should
-     * be located
-     * This is where the `mods` folder will be located.
-     */
     @Override
     public Path getLaunchDirectory() {
         if (arguments == null) {
@@ -120,10 +91,6 @@ public class CosmicReachGameProvider implements GameProvider {
     private static Path getLaunchDirectory(Arguments arguments) {
         return Paths.get(arguments.getOrDefault(PROPERTY_GAME_DIRECTORY, "."));
     }
-
-    /*
-     * Return true if the app needs to be deobfuscated.
-     */
     @Override
     public boolean isObfuscated() {
         return false;
@@ -139,17 +106,14 @@ public class CosmicReachGameProvider implements GameProvider {
         return true;
     }
 
-    /*
-     * Parse the arguments, locate the game directory, and return true if the game
-     * directory is valid.
-     */
     @Override
     public boolean locateGame(FabricLauncher launcher, String[] args) {
         this.arguments = new Arguments();
         this.arguments.parse(args);
 
-        // Build a list of possible locations for the app JAR.
+        // Build a list of possible locations for the game JAR.
         List<String> appLocations = new ArrayList<>();
+
         // Respect "fabric.gameJarPath" if it is set.
         if (System.getProperty(SystemProperties.GAME_JAR_PATH) != null) {
             appLocations.add(System.getProperty(SystemProperties.GAME_JAR_PATH));
@@ -167,7 +131,6 @@ public class CosmicReachGameProvider implements GameProvider {
         GameProviderHelper.FindResult result = GameProviderHelper.findFirst(existingAppLocations, new HashMap<>(), true, ENTRYPOINTS);
 
         if (result == null || result.path == null) {
-            // Tell the user we couldn't find the app JAR.
             String appLocationsString = appLocations.stream().map(p -> (String.format("* %s", Paths.get(p).toAbsolutePath().normalize())))
                     .collect(Collectors.joining("\n"));
 
@@ -183,10 +146,6 @@ public class CosmicReachGameProvider implements GameProvider {
         return true;
     }
 
-    /*
-     * Add additional configuration to the FabricLauncher, but do not launch your
-     * app.
-     */
     @Override
     public void initialize(FabricLauncher launcher) {
         try {
@@ -205,27 +164,16 @@ public class CosmicReachGameProvider implements GameProvider {
         }
         TRANSFORMERS.locateEntrypoints(launcher, Collections.singletonList(gameJar));
     }
-
-    /*
-     * Return a GameTransformer that does extra modification on the app's JAR.
-     */
     @Override
     public GameTransformer getEntrypointTransformer() {
         return TRANSFORMERS;
     }
 
-    /*
-     * Called after transformers were initialized and mods were detected and loaded
-     * (but not initialized).
-     */
     @Override
     public void unlockClassPath(FabricLauncher launcher) {
         launcher.addToClassPath(gameJar);
     }
 
-    /*
-     * Launch the app in this function. This MUST be done via reflection.
-     */
     @Override
     public void launch(ClassLoader loader) {
         String targetClass = entrypoint;
