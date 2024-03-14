@@ -1,0 +1,94 @@
+/*
+ * This file contains an application project which integrates the Fabric mod loader.
+ */
+
+plugins {
+    // Apply the application plugin to add support for building a CLI application in Java.
+    id 'java-library'
+}
+
+allprojects {
+    repositories {
+
+        // SpongePowered Maven repository for Mixins
+        maven {
+            url "https://repo.spongepowered.org/maven/"
+        }
+        // FabricMC Maven repository for Fabric Loader
+        maven {
+            url "https://maven.fabricmc.net/"
+        }
+
+        // Maven Central for core dependencies
+        mavenCentral() {
+            content {
+                // Force ASM and ME to come from the fabric maven.
+                // This ensures that the version has been mirrored for use by the launcher/installer.
+                excludeGroupByRegex "org.ow2.asm"
+                excludeGroupByRegex "io.github.llamalad7"
+            }
+        }
+    }
+}
+
+
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
+
+version = '1.1.0'
+group = "ru.nern"
+archivesBaseName = "cosmicreach-fabric-modloader"
+
+dependencies {
+    api 'com.google.guava:guava:33.0.0-jre'
+    api 'com.google.code.gson:gson:2.9.1'
+
+    // Fabric dependencies
+    api "net.fabricmc:fabric-loader:$loader_version"
+    api "net.fabricmc:tiny-mappings-parser:0.2.2.14"
+    api "net.fabricmc:access-widener:2.1.0"
+
+    // Mixin dependencies
+    api "org.ow2.asm:asm:$asm_version"
+    api "org.ow2.asm:asm-analysis:$asm_version"
+    api "org.ow2.asm:asm-commons:$asm_version"
+    api "org.ow2.asm:asm-tree:$asm_version"
+    api "org.ow2.asm:asm-util:$asm_version"
+    api("net.fabricmc:sponge-mixin:$mixin_version") {
+        exclude module: 'launchwrapper'
+        exclude group: 'com.google.guava'
+        exclude group: 'com.google.code.gson'
+    }
+    api annotationProcessor("io.github.llamalad7:mixinextras-fabric:$mixin_extras_version")
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir 'src'
+        }
+    }
+}
+
+jar {
+    manifest {
+        attributes(
+                'Class-Path': configurations.runtimeClasspath.collect { it.getName() }.join(' '),
+                'Specification-Version': 8.0,
+                'Multi-Release': 'true'
+        )
+    }
+}
+
+tasks.register('copyDependencies', Copy) {
+    group 'build'
+    from configurations.runtimeClasspath
+    into "build/libs/deps/"
+}
+
+assemble {
+    group 'build'
+    dependsOn 'jar'
+    dependsOn 'copyDependencies'
+}
+
