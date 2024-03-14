@@ -1,9 +1,4 @@
-/*
- * This file contains an application project which integrates the Fabric mod loader.
- */
-
 plugins {
-    // Apply the application plugin to add support for building a CLI application in Java.
     id 'java-library'
 }
 
@@ -30,10 +25,6 @@ allprojects {
         }
     }
 }
-
-
-sourceCompatibility = JavaVersion.VERSION_17
-targetCompatibility = JavaVersion.VERSION_17
 
 version = '1.1.0'
 group = "ru.nern"
@@ -83,7 +74,7 @@ jar {
 tasks.register('copyDependencies', Copy) {
     group 'build'
     from configurations.runtimeClasspath
-    into "build/libs/deps/"
+    into "release/deps/"
 }
 
 assemble {
@@ -92,3 +83,9 @@ assemble {
     dependsOn 'copyDependencies'
 }
 
+tasks.register('buildAndCopy', Copy) {
+    group 'build'
+    dependsOn 'assemble'
+    from "build/libs/"
+    into "release/"
+}
