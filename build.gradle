@@ -26,7 +26,7 @@ allprojects {
     }
 }
 
-version = '1.1.0'
+version = "$provider_version"
 group = "ru.nern"
 archivesBaseName = "cosmicreach-fabric-modloader"
 
@@ -83,7 +83,17 @@ assemble {
     dependsOn 'copyDependencies'
 }
 
+tasks.register('generateLaunchScripts') {
+    doLast {
+        new File("release/", "launch.sh").text =
+                "java -Dfabric.skipMcProvider=true -classpath \"/cosmic-reach.jar:cosmicreach-fabric-modloader-${provider_version}.jar:deps/*\" net.fabricmc.loader.launch.knot.KnotClient"
+        new File("release/", "launch.bat").text =
+                "java -Dfabric.skipMcProvider=true -classpath \"/cosmic-reach.jar;cosmicreach-fabric-modloader-${provider_version}.jar;deps/*\" net.fabricmc.loader.launch.knot.KnotClient"
+    }
+}
+
 tasks.register('buildAndCopy', Copy) {
+    dependsOn generateLaunchScripts
     group 'build'
     dependsOn 'assemble'
     from "build/libs/"

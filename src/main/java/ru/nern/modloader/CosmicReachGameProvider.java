@@ -1,6 +1,12 @@
 package ru.nern.modloader;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.internal.InternalFutureFailureAccess;
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.gson.Gson;
+import com.llamalad7.mixinextras.MixinExtrasBootstrap;
+import net.fabricmc.accesswidener.AccessWidener;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.impl.FormattedException;
 import net.fabricmc.loader.impl.game.GameProvider;
@@ -13,6 +19,8 @@ import net.fabricmc.loader.impl.util.Arguments;
 import net.fabricmc.loader.impl.util.SystemProperties;
 import net.fabricmc.loader.impl.util.log.Log;
 import net.fabricmc.loader.impl.util.log.LogCategory;
+import net.fabricmc.mapping.reader.v2.MappingGetter;
+import org.checkerframework.checker.calledmethods.qual.CalledMethods;
 import org.objectweb.asm.AnnotationVisitor;
 import org.objectweb.asm.commons.AdviceAdapter;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -21,6 +29,7 @@ import org.objectweb.asm.util.ASMifier;
 import org.spongepowered.asm.launch.MixinBootstrap;
 import ru.nern.modloader.patch.CRInitPatch;
 
+import javax.annotation.Nullable;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URISyntaxException;
@@ -34,6 +43,7 @@ import java.util.stream.Collectors;
  * A custom GameProvider which grants Fabric Loader the necessary information to launch the game.
  */
 public class CosmicReachGameProvider implements GameProvider {
+    private final String PROVIDER_VERSION = "1.1.1";
     public static final String[] ENTRYPOINTS = new String[]{"finalforeach.cosmicreach.lwjgl3.Lwjgl3Launcher"};
     public static final String PROPERTY_GAME_DIRECTORY = "appDirectory";
 
@@ -65,7 +75,7 @@ public class CosmicReachGameProvider implements GameProvider {
     public Collection<BuiltinMod> getBuiltinMods() {
         HashMap<String, String> contactMap = new HashMap<>();
         contactMap.put("homepage", "https://finalforeach.itch.io/cosmic-reach");
-        contactMap.put("wiki", "https://finalforeach.itch.io/cosmic-reach");
+        contactMap.put("wiki", "https://cosmicreach.wiki.gg/wiki");
 
         BuiltinModMetadata.Builder modMetadata = new BuiltinModMetadata.Builder(getGameId(), getNormalizedGameVersion())
                 .setName(getGameName())
@@ -73,7 +83,18 @@ public class CosmicReachGameProvider implements GameProvider {
                 .setContact(new ContactInformationImpl(contactMap))
                 .setDescription("Cosmic Reach Game");
 
-        return Collections.singletonList(new BuiltinMod(Collections.singletonList(gameJar), modMetadata.build()));
+        HashMap<String, String> contactMapProvider = new HashMap<>();
+        contactMapProvider.put("homepage", "https://github.com/ForwarD-NerN/CosmicReach-Mod-Loader");
+
+        BuiltinModMetadata.Builder providerMetadata = new BuiltinModMetadata.Builder("cosmic_reach_provider", PROVIDER_VERSION)
+                .setName("Cosmic Reach Game Provider")
+                .addAuthor("ForwarD NerN", contactMapProvider)
+                .addContributor("KaboomRoads", contactMapProvider)
+                .setContact(new ContactInformationImpl(contactMapProvider))
+                .setDescription("The game provider for the Cosmic Reach");
+
+        return Arrays.asList(new BuiltinMod(Collections.singletonList(gameJar), modMetadata.build()),
+                new BuiltinMod(Collections.emptyList(), providerMetadata.build()));
     }
     @Override
     public String getEntrypoint() {
@@ -157,7 +178,16 @@ public class CosmicReachGameProvider implements GameProvider {
                     Path.of(AbstractInsnNode.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
                     Path.of(Analyzer.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
                     Path.of(ASMifier.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(AdviceAdapter.class.getProtectionDomain().getCodeSource().getLocation().toURI())
+                    Path.of(AdviceAdapter.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(MixinExtrasBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(AccessWidener.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(CalledMethods.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(CanIgnoreReturnValue.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(InternalFutureFailureAccess.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(Gson.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(BiMap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(Nullable.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+                    Path.of(MappingGetter.class.getProtectionDomain().getCodeSource().getLocation().toURI())
             ));
         } catch (URISyntaxException e) {
             throw new RuntimeException(e);
