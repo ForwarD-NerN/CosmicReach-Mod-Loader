@@ -1,13 +1,13 @@
 package ru.nern.modloader.patch;
 
+import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.impl.game.patch.GamePatch;
 import net.fabricmc.loader.impl.launch.FabricLauncher;
 import net.fabricmc.loader.impl.util.log.Log;
 import net.fabricmc.loader.impl.util.log.LogCategory;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.tree.ClassNode;
-import org.objectweb.asm.tree.MethodInsnNode;
-import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.Type;
+import org.objectweb.asm.tree.*;
 import ru.nern.modloader.CosmicHooks;
 
 import java.util.function.Consumer;
@@ -26,15 +26,32 @@ public class CRInitPatch extends GamePatch {
             throw new RuntimeException("Could not load main class " + entrypoint + "!");
         }
 
-        MethodNode initMethod = findMethod(mainClass, (method) -> method.name.equals("main"));
+        MethodNode initMethod = findMethod(mainClass, (method) -> method.name.equals("create"));
         if (initMethod == null) {
-            throw new RuntimeException("Could not find init method in " + entrypoint + "!");
+            throw new RuntimeException("Could not find method \"create\" in " + entrypoint + "!");
         }
 
-        Log.debug(LogCategory.GAME_PATCH, "Found init method: %s -> %s", entrypoint, mainClass.name);
-        Log.debug(LogCategory.GAME_PATCH, "Patching init method %s%s", initMethod.name, initMethod.desc);
+        Log.debug(LogCategory.GAME_PATCH, "Found \"create\" method: %s -> %s", entrypoint, mainClass.name);
+        Log.debug(LogCategory.GAME_PATCH, "Patching \"create\" method %s%s", initMethod.name, initMethod.desc);
 
-        initMethod.instructions.iterator().add(new MethodInsnNode(Opcodes.INVOKESTATIC, CosmicHooks.INTERNAL_NAME, "init", "()V", false));
+        injectTailInsn(initMethod, new MethodInsnNode(Opcodes.INVOKESTATIC, CosmicHooks.INTERNAL_NAME, "init", "()V", false));
         classEmitter.accept(mainClass);
+    }
+
+    private static void injectTailInsn(MethodNode method, AbstractInsnNode injectedInsn) {
+        AbstractInsnNode ret = null;
+        int returnOpcode = Type.getReturnType(method.desc).getOpcode(Opcodes.IRETURN);
+
+        for (AbstractInsnNode insn : method.instructions) {
+            if (insn instanceof InsnNode && insn.getOpcode() == returnOpcode) {
+                ret = insn;
+            }
+        }
+
+        if (ret == null) {
+            throw new RuntimeException("TAIL could not locate a valid RETURN in the target method!");
+        }
+
+        method.instructions.insertBefore(ret, injectedInsn);
     }
 }

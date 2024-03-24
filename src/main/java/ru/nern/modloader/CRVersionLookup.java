@@ -10,11 +10,10 @@ import java.util.Scanner;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-public class CRVersion {
-    private final String version;
+public class CRVersionLookup {
 
     //Parsing the game version
-    public CRVersion(Path path) {
+    public static String getVersion(Path path) {
         String version = "0.0.0";
 
         try {
@@ -39,11 +38,6 @@ public class CRVersion {
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-        this.version = version;
-    }
-
-    public String getVersion() {
         return version;
     }
 }

@@ -1,56 +1,44 @@
 package ru.nern.modloader;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.internal.InternalFutureFailureAccess;
-import com.google.errorprone.annotations.CanIgnoreReturnValue;
-import com.google.gson.Gson;
-import com.llamalad7.mixinextras.MixinExtrasBootstrap;
-import net.fabricmc.accesswidener.AccessWidener;
-import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.api.EnvType;
 import net.fabricmc.loader.impl.FormattedException;
 import net.fabricmc.loader.impl.game.GameProvider;
 import net.fabricmc.loader.impl.game.GameProviderHelper;
+import net.fabricmc.loader.impl.game.LibClassifier;
 import net.fabricmc.loader.impl.game.patch.GameTransformer;
 import net.fabricmc.loader.impl.launch.FabricLauncher;
 import net.fabricmc.loader.impl.metadata.BuiltinModMetadata;
 import net.fabricmc.loader.impl.metadata.ContactInformationImpl;
 import net.fabricmc.loader.impl.util.Arguments;
+import net.fabricmc.loader.impl.util.ExceptionUtil;
 import net.fabricmc.loader.impl.util.SystemProperties;
 import net.fabricmc.loader.impl.util.log.Log;
 import net.fabricmc.loader.impl.util.log.LogCategory;
-import net.fabricmc.mapping.reader.v2.MappingGetter;
-import org.checkerframework.checker.calledmethods.qual.CalledMethods;
-import org.objectweb.asm.AnnotationVisitor;
-import org.objectweb.asm.commons.AdviceAdapter;
-import org.objectweb.asm.tree.AbstractInsnNode;
-import org.objectweb.asm.tree.analysis.Analyzer;
-import org.objectweb.asm.util.ASMifier;
-import org.spongepowered.asm.launch.MixinBootstrap;
 import ru.nern.modloader.patch.CRInitPatch;
 
-import javax.annotation.Nullable;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /*
  * A custom GameProvider which grants Fabric Loader the necessary information to launch the game.
  */
 public class CosmicReachGameProvider implements GameProvider {
-    private final String PROVIDER_VERSION = "1.1.1";
-    public static final String[] ENTRYPOINTS = new String[]{"finalforeach.cosmicreach.lwjgl3.Lwjgl3Launcher"};
+    public static final String PROVIDER_VERSION = "1.1.2";
+    public static final String CLIENT_ENTRYPOINT = "finalforeach.cosmicreach.BlockGame";
+    public static final String[] ENTRYPOINTS = new String[]{CLIENT_ENTRYPOINT};
     public static final String PROPERTY_GAME_DIRECTORY = "appDirectory";
 
     private Arguments arguments;
+    private EnvType envType;
     private Path gameJar;
-    private CRVersion version;
+    private String version;
     private String entrypoint;
+    private Collection<Path> validParentClassPath; // computed parent class path restriction (loader+deps)
 
     private static final GameTransformer TRANSFORMERS = new GameTransformer(new CRInitPatch());
 
@@ -64,12 +52,13 @@ public class CosmicReachGameProvider implements GameProvider {
     }
     @Override
     public String getRawGameVersion() {
-        return version.getVersion();
+        return version;
     }
     @Override
     public String getNormalizedGameVersion() {
-        return version.getVersion();
+        return version;
     }
+
 
     @Override
     public Collection<BuiltinMod> getBuiltinMods() {
@@ -129,69 +118,88 @@ public class CosmicReachGameProvider implements GameProvider {
 
     @Override
     public boolean locateGame(FabricLauncher launcher, String[] args) {
+        this.envType = launcher.getEnvironmentType();
         this.arguments = new Arguments();
         this.arguments.parse(args);
 
-        // Build a list of possible locations for the game JAR.
-        List<String> appLocations = new ArrayList<>();
+        Path commonGameJar = GameProviderHelper.getCommonGameJar();
+        Path envGameJar = GameProviderHelper.getEnvGameJar(envType);
 
-        // Respect "fabric.gameJarPath" if it is set.
-        if (System.getProperty(SystemProperties.GAME_JAR_PATH) != null) {
-            appLocations.add(System.getProperty(SystemProperties.GAME_JAR_PATH));
+        try {
+            LibClassifier<CosmicLibrary> classifier = new LibClassifier<>(CosmicLibrary.class, envType, this);
+            //CosmicLibrary envGameLib = envType == EnvType.CLIENT ? CosmicLibrary.COSMIC_CLIENT : CosmicLibrary.COSMIC_SERVER;
+            CosmicLibrary envGameLib = CosmicLibrary.COSMIC_CLIENT;
+
+            if(commonGameJar != null) {
+                classifier.process(commonGameJar);
+            }else if(envGameJar != null) {
+                classifier.process(envGameJar);
+            }else {
+                List<String> gameLocations = new ArrayList<>();
+
+                // Respect "fabric.gameJarPath" if it is set.
+                if (System.getProperty(SystemProperties.GAME_JAR_PATH) != null) {
+                    gameLocations.add(System.getProperty(SystemProperties.GAME_JAR_PATH));
+                }
+
+                // List out default locations.
+                gameLocations.add("./cosmic-reach.jar");
+                gameLocations.add("./game/cosmic-reach.jar");
+
+                Optional<Path> gameLocation = gameLocations.stream().map(p ->
+                        Paths.get(p).toAbsolutePath().normalize())
+                        .filter(Files::exists).findFirst();
+                if(gameLocation.isPresent()) {
+                    classifier.process(gameLocation.get());
+                }
+            }
+            classifier.process(launcher.getClassPath());
+
+            gameJar = classifier.getOrigin(envGameLib);
+            entrypoint = classifier.getClassName(envGameLib);
+            validParentClassPath = classifier.getSystemLibraries();
+        } catch (IOException e) {
+            throw ExceptionUtil.wrap(e);
         }
 
-        // List out default locations.
-        appLocations.add("./cosmic-reach.jar");
-        appLocations.add("./game/cosmic-reach.jar");
-
-        // Filter the list of possible locations based on whether the file exists.
-        List<Path> existingAppLocations = appLocations.stream().map(p -> Paths.get(p).toAbsolutePath().normalize())
-                .filter(Files::exists).toList();
-
-        // Filter the list of possible locations based on whether they contain the required entrypoints
-        GameProviderHelper.FindResult result = GameProviderHelper.findFirst(existingAppLocations, new HashMap<>(), true, ENTRYPOINTS);
-
-        if (result == null || result.path == null) {
-            String appLocationsString = appLocations.stream().map(p -> (String.format("* %s", Paths.get(p).toAbsolutePath().normalize())))
-                    .collect(Collectors.joining("\n"));
-
-            Log.error(LogCategory.GAME_PROVIDER, "Could not locate the application JAR! We looked in: \n" + appLocationsString);
-
+        if(gameJar == null) {
+            Log.error(LogCategory.GAME_PROVIDER, "Could not locate Cosmic Reach JAR!");
             return false;
         }
 
-        entrypoint = result.name;
-        version = new CRVersion(result.path);
-        gameJar = result.path;
+        version = CRVersionLookup.getVersion(gameJar);
 
         return true;
     }
 
     @Override
     public void initialize(FabricLauncher launcher) {
-        try {
-            launcher.setValidParentClassPath(ImmutableList.of(
-                    Path.of(getClass().getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(MixinBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(FabricLoader.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(AnnotationVisitor.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(AbstractInsnNode.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(Analyzer.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(ASMifier.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(AdviceAdapter.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(MixinExtrasBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(AccessWidener.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(CalledMethods.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(CanIgnoreReturnValue.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(InternalFutureFailureAccess.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(Gson.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(BiMap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(Nullable.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
-                    Path.of(MappingGetter.class.getProtectionDomain().getCodeSource().getLocation().toURI())
-            ));
-        } catch (URISyntaxException e) {
-            throw new RuntimeException(e);
-        }
+//        try {
+//            launcher.setValidParentClassPath(ImmutableList.of(
+//                    Path.of(getClass().getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(MixinBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(FabricLoader.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(AnnotationVisitor.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(AbstractInsnNode.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(Analyzer.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(ASMifier.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(AdviceAdapter.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(MixinExtrasBootstrap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(AccessWidener.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(CalledMethods.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(CanIgnoreReturnValue.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(InternalFutureFailureAccess.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(Gson.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(BiMap.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(Nullable.class.getProtectionDomain().getCodeSource().getLocation().toURI()),
+//                    Path.of(MappingGetter.class.getProtectionDomain().getCodeSource().getLocation().toURI())
+//            ));
+//        } catch (URISyntaxException e) {
+//            throw new RuntimeException(e);
+//        }
+        launcher.setValidParentClassPath(validParentClassPath);
+        Log.info(LogCategory.GAME_PROVIDER, "Valid classpath: "+validParentClassPath);
+
         TRANSFORMERS.locateEntrypoints(launcher, Collections.singletonList(gameJar));
     }
     @Override
@@ -206,7 +214,8 @@ public class CosmicReachGameProvider implements GameProvider {
 
     @Override
     public void launch(ClassLoader loader) {
-        String targetClass = entrypoint;
+        String targetClass = "finalforeach.cosmicreach.lwjgl3.Lwjgl3Launcher";
+
         try {
             Class<?> main = loader.loadClass(targetClass);
             Method method = main.getMethod("main", String[].class);
@@ -225,6 +234,7 @@ public class CosmicReachGameProvider implements GameProvider {
 
     @Override
     public String[] getLaunchArguments(boolean sanitize) {
+        Log.info(LogCategory.GAME_PROVIDER, "LAUNCH ARGS: " + Arrays.toString(arguments.toArray()));
         return arguments == null ? new String[0] : arguments.toArray();
     }
 }
